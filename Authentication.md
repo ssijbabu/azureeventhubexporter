@@ -1,25 +1,31 @@
 # Authentication
 
-The Azure Event Hub exporter supports two authentication modes:
+The Azure Event Hub exporter supports two authentication modes, each available for both the AMQP and Kafka protocols:
 
-- **Connection string** — a SAS-based connection string from the Azure portal
+- **SAS key** — shared access key from the Azure portal, supplied as individual fields
 - **Auth extension** — any `azcore.TokenCredential` supplied by an auth extension (service principal, managed identity, workload identity)
+
+Set `protocol: kafka` on any configuration below to switch from AMQP (default) to the Kafka-compatible endpoint. The auth fields are identical for both protocols.
 
 ---
 
-## Connection string
+## SAS key
 
-Paste the connection string directly from the Azure portal. The hub name can be embedded in the string via `EntityPath`, or supplied separately via `event_hub.name` (which takes precedence).
+Supply the namespace, hub name, and key fields directly. The exporter assembles the connection string internally.
 
 ```yaml
 exporters:
   azure_event_hub:
-    connection: "Endpoint=sb://<namespace>.servicebus.windows.net/;SharedAccessKeyName=<key-name>;SharedAccessKey=<key>;EntityPath=<hub-name>"
+    event_hub:
+      namespace: <namespace>.servicebus.windows.net
+      name: <hub-name>
+      shared_access_key_name: RootManageSharedAccessKey
+      shared_access_key: <key>
 ```
 
-Obtain the connection string from the Azure portal:
+Obtain the key from the Azure portal:
 
-**Event Hubs namespace → Shared access policies → \<policy\> → Connection string–primary key**
+**Event Hubs namespace → Shared access policies → \<policy\> → Primary key**
 
 or via CLI:
 
@@ -29,14 +35,14 @@ az eventhubs eventhub authorization-rule keys list \
   --namespace-name <namespace> \
   --eventhub-name <hub> \
   --name RootManageSharedAccessKey \
-  --query primaryConnectionString -o tsv
+  --query primaryKey -o tsv
 ```
 
 ---
 
 ## Auth extension (`azureauthextension`)
 
-When using an auth extension, omit `connection` and instead supply `event_hub.namespace` and `event_hub.name`. The extension must implement `azcore.TokenCredential`; the [`azureauthextension`](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/extension/azureauthextension) satisfies this requirement.
+When using an auth extension, omit the SAS key fields and add `auth`. The extension must implement `azcore.TokenCredential`; the [`azureauthextension`](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/extension/azureauthextension) satisfies this requirement.
 
 The required OAuth scope for the Event Hubs data plane is `https://eventhubs.azure.net/.default`.
 
@@ -201,6 +207,21 @@ The `federated_token_file` path is injected by the AKS workload identity webhook
 | Azure VM or VMSS | System-assigned managed identity |
 | Shared or multi-tenant compute | User-assigned managed identity |
 | AKS with workload identity | Workload identity (federated) |
-| Any environment, simple setup | Connection string |
+| Any environment, simple setup | SAS key |
 
-Connection strings are the easiest to get started with but embed credentials in the config. For production deployments on Azure compute, prefer managed identity or workload identity — they rotate automatically and require no secret management.
+SAS keys are the easiest to get started with but embed credentials in the config. For production deployments on Azure compute, prefer managed identity or workload identity — they rotate automatically and require no secret management.
+
+## Protocol
+
+Add `protocol: kafka` to any configuration above to send via the Azure Event Hubs Kafka-compatible endpoint instead of AMQP. The broker address (`<namespace>:9093`), TLS, and SASL are configured automatically — no additional fields are required.
+
+```yaml
+exporters:
+  azure_event_hub:
+    protocol: kafka          # omit for AMQP (default)
+    event_hub:
+      namespace: <namespace>.servicebus.windows.net
+      name: <hub-name>
+      shared_access_key_name: RootManageSharedAccessKey
+      shared_access_key: <key>
+```
