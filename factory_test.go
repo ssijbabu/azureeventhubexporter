@@ -28,7 +28,12 @@ func TestCreateDefaultConfig(t *testing.T) {
 
 func TestCreateLogsExporter(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Connection = "Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=dGVzdA==;EntityPath=hub"
+	cfg.EventHub = EventHubConfig{
+		Namespace:           "test.servicebus.windows.net",
+		Name:                "hub",
+		SharedAccessKeyName: "key",
+		SharedAccessKey:     "dGVzdA==",
+	}
 
 	f := NewFactory()
 	exp, err := f.CreateLogs(context.Background(), exportertest.NewNopSettings(metadata.Type), cfg)
@@ -38,7 +43,12 @@ func TestCreateLogsExporter(t *testing.T) {
 
 func TestCreateMetricsExporter(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Connection = "Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=dGVzdA==;EntityPath=hub"
+	cfg.EventHub = EventHubConfig{
+		Namespace:           "test.servicebus.windows.net",
+		Name:                "hub",
+		SharedAccessKeyName: "key",
+		SharedAccessKey:     "dGVzdA==",
+	}
 
 	f := NewFactory()
 	exp, err := f.CreateMetrics(context.Background(), exportertest.NewNopSettings(metadata.Type), cfg)
@@ -48,7 +58,12 @@ func TestCreateMetricsExporter(t *testing.T) {
 
 func TestCreateTracesExporter(t *testing.T) {
 	cfg := createDefaultConfig().(*Config)
-	cfg.Connection = "Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=dGVzdA==;EntityPath=hub"
+	cfg.EventHub = EventHubConfig{
+		Namespace:           "test.servicebus.windows.net",
+		Name:                "hub",
+		SharedAccessKeyName: "key",
+		SharedAccessKey:     "dGVzdA==",
+	}
 
 	f := NewFactory()
 	exp, err := f.CreateTraces(context.Background(), exportertest.NewNopSettings(metadata.Type), cfg)

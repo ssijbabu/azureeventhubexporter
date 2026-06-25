@@ -318,22 +318,16 @@ func TestShutdown_ClosesProducer(t *testing.T) {
 
 // --- start() tests ---
 
-func TestStart_ConnectionString(t *testing.T) {
+func TestStart_SASKey(t *testing.T) {
 	exp := newTestExporter(&Config{
-		Connection: "Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=dGVzdA==;EntityPath=hub",
+		EventHub: EventHubConfig{
+			Namespace:           "test.servicebus.windows.net",
+			Name:                "hub",
+			SharedAccessKeyName: "key",
+			SharedAccessKey:     "dGVzdA==",
+		},
 	})
 	// The SDK creates the ProducerClient lazily; no network call happens here.
-	require.NoError(t, exp.start(context.Background(), componenttest.NewNopHost()))
-	assert.NotNil(t, exp.producer)
-	_ = exp.shutdown(context.Background())
-}
-
-func TestStart_ConnectionString_WithEventHubName(t *testing.T) {
-	exp := newTestExporter(&Config{
-		// EntityPath not in connection string — supplied separately via EventHub.Name.
-		Connection: "Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=dGVzdA==",
-		EventHub:   EventHubConfig{Name: "myhub"},
-	})
 	require.NoError(t, exp.start(context.Background(), componenttest.NewNopHost()))
 	assert.NotNil(t, exp.producer)
 	_ = exp.shutdown(context.Background())
@@ -377,18 +371,6 @@ func TestStart_AuthExtensionValid(t *testing.T) {
 	_ = exp.shutdown(context.Background())
 }
 
-func TestStart_AuthIgnoresConnectionString(t *testing.T) {
-	id := component.MustNewID("azure_auth")
-	exp := newTestExporter(&Config{
-		Auth:       &id,
-		Connection: "Endpoint=sb://ignored.servicebus.windows.net/;SharedAccessKeyName=k;SharedAccessKey=dGVzdA==;EntityPath=hub",
-		EventHub:   EventHubConfig{Name: "hub", Namespace: "test.servicebus.windows.net"},
-	})
-
-	host := newHostWithExtension(id, &fakeTokenCredential{})
-	require.NoError(t, exp.start(context.Background(), host))
-	_ = exp.shutdown(context.Background())
-}
 
 // fakeTokenCredential implements azcore.TokenCredential for use in tests.
 type fakeTokenCredential struct{ component.StartFunc; component.ShutdownFunc }

@@ -11,8 +11,15 @@ import (
 )
 
 func TestConfigValidate(t *testing.T) {
-	validConnStr := "Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=dGVzdA==;EntityPath=hub"
 	authID := component.MustNewID("azure_auth")
+
+	// Base valid SAS-key config, used as a foundation for table entries.
+	validEventHub := EventHubConfig{
+		Namespace:           "test.servicebus.windows.net",
+		Name:                "hub",
+		SharedAccessKeyName: "key",
+		SharedAccessKey:     "dGVzdA==",
+	}
 
 	tests := []struct {
 		name    string
@@ -20,49 +27,66 @@ func TestConfigValidate(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "missing connection and auth",
+			name:    "missing namespace",
 			cfg:     &Config{},
-			wantErr: errMissingConnection.Error(),
+			wantErr: "event_hub.namespace is required",
 		},
 		{
-			name:    "invalid connection string",
-			cfg:     &Config{Connection: "not-a-connection-string"},
-			wantErr: "failed parsing connection string",
+			name:    "missing name",
+			cfg:     &Config{EventHub: EventHubConfig{Namespace: "test.servicebus.windows.net"}},
+			wantErr: "event_hub.name is required",
 		},
 		{
-			name: "valid connection string",
-			cfg:  &Config{Connection: validConnStr},
+			name: "missing shared_access_key_name",
+			cfg: &Config{EventHub: EventHubConfig{
+				Namespace: "test.servicebus.windows.net",
+				Name:      "hub",
+			}},
+			wantErr: "event_hub.shared_access_key_name is required",
 		},
 		{
-			name: "auth without event_hub.name",
-			cfg: &Config{
-				Auth:     &authID,
-				EventHub: EventHubConfig{Namespace: "ns.servicebus.windows.net"},
-			},
-			wantErr: "event_hub.name is required when using auth",
+			name: "missing shared_access_key",
+			cfg: &Config{EventHub: EventHubConfig{
+				Namespace:           "test.servicebus.windows.net",
+				Name:                "hub",
+				SharedAccessKeyName: "key",
+			}},
+			wantErr: "event_hub.shared_access_key is required",
+		},
+		{
+			name: "valid sas key config",
+			cfg:  &Config{EventHub: validEventHub},
 		},
 		{
 			name: "auth without event_hub.namespace",
 			cfg: &Config{
 				Auth:     &authID,
-				EventHub: EventHubConfig{Name: "myhub"},
+				EventHub: EventHubConfig{Name: "hub"},
 			},
-			wantErr: "event_hub.namespace is required when using auth",
+			wantErr: "event_hub.namespace is required",
+		},
+		{
+			name: "auth without event_hub.name",
+			cfg: &Config{
+				Auth:     &authID,
+				EventHub: EventHubConfig{Namespace: "test.servicebus.windows.net"},
+			},
+			wantErr: "event_hub.name is required",
 		},
 		{
 			name: "valid auth config",
 			cfg: &Config{
 				Auth: &authID,
 				EventHub: EventHubConfig{
-					Name:      "myhub",
-					Namespace: "ns.servicebus.windows.net",
+					Namespace: "test.servicebus.windows.net",
+					Name:      "hub",
 				},
 			},
 		},
 		{
 			name: "partition_logs_by_resource_attributes and partition_logs_by_trace_id are mutually exclusive",
 			cfg: &Config{
-				Connection:                        validConnStr,
+				EventHub:                          validEventHub,
 				PartitionLogsByResourceAttributes: true,
 				PartitionLogsByTraceID:            true,
 			},
@@ -71,30 +95,52 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "partition_logs_by_resource_attributes alone is valid",
 			cfg: &Config{
-				Connection:                        validConnStr,
+				EventHub:                          validEventHub,
 				PartitionLogsByResourceAttributes: true,
 			},
 		},
 		{
 			name: "partition_logs_by_trace_id alone is valid",
 			cfg: &Config{
-				Connection:             validConnStr,
+				EventHub:               validEventHub,
 				PartitionLogsByTraceID: true,
 			},
 		},
 		{
 			name: "partition_traces_by_id is valid",
 			cfg: &Config{
-				Connection:          validConnStr,
+				EventHub:            validEventHub,
 				PartitionTracesByID: true,
 			},
 		},
 		{
 			name: "partition_metrics_by_resource_attributes is valid",
 			cfg: &Config{
-				Connection:                           validConnStr,
+				EventHub:                             validEventHub,
 				PartitionMetricsByResourceAttributes: true,
 			},
+		},
+		{
+			name: "protocol amqp is valid",
+			cfg:  &Config{EventHub: validEventHub, Protocol: ProtocolAMQP},
+		},
+		{
+			name: "protocol kafka is valid",
+			cfg:  &Config{EventHub: validEventHub, Protocol: ProtocolKafka},
+		},
+		{
+			name:    "unsupported protocol",
+			cfg:     &Config{EventHub: validEventHub, Protocol: "grpc"},
+			wantErr: "unsupported protocol",
+		},
+		{
+			name: "kafka with auth requires event_hub.name",
+			cfg: &Config{
+				Auth:     &authID,
+				Protocol: ProtocolKafka,
+				EventHub: EventHubConfig{Namespace: "test.servicebus.windows.net"},
+			},
+			wantErr: "event_hub.name is required",
 		},
 	}
 

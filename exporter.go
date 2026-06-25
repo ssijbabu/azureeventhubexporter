@@ -41,12 +41,13 @@ type producerClient interface {
 }
 
 type azureEventHubExporter struct {
-	config   *Config
-	producer producerClient
-	logger   *zap.Logger
+	config      *Config
+	producer    producerClient   // AMQP path; nil when using Kafka
+	kafkaSender *kafkaSenderImpl // Kafka path; nil when using AMQP
+	logger      *zap.Logger
 	// doSend is the function called by Consume* methods to dispatch a single
-	// (partitionKey, body) pair. It defaults to e.send and can be replaced in
-	// tests to capture output without a live Event Hub connection.
+	// (partitionKey, body) pair. It defaults to e.send (AMQP) and can be
+	// replaced in tests to capture output without a live connection.
 	doSend func(ctx context.Context, partitionKey string, body []byte) error
 }
 
@@ -60,10 +61,14 @@ func newExporter(config *Config, logger *zap.Logger) *azureEventHubExporter {
 }
 
 func (e *azureEventHubExporter) start(_ context.Context, host component.Host) error {
+	if e.config.Protocol == ProtocolKafka {
+		return e.startKafka(host)
+	}
+	return e.startAMQP(host)
+}
+
+func (e *azureEventHubExporter) startAMQP(host component.Host) error {
 	if e.config.Auth != nil {
-		if e.config.Connection != "" {
-			e.logger.Warn("both 'auth' and 'connection' are specified; 'connection' will be ignored")
-		}
 		ext, ok := host.GetExtensions()[*e.config.Auth]
 		if !ok {
 			return fmt.Errorf("failed to resolve auth extension %q", *e.config.Auth)
@@ -85,24 +90,58 @@ func (e *azureEventHubExporter) start(_ context.Context, host component.Host) er
 		return nil
 	}
 
-	// EventHub.Name overrides any EntityPath embedded in the connection string.
+	// EntityPath is already embedded in the built connection string; pass "" to avoid conflict.
 	producer, err := azeventhubs.NewProducerClientFromConnectionString(
-		e.config.Connection,
-		e.config.EventHub.Name,
+		e.config.EventHub.buildConnectionString(),
+		"",
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create Event Hub producer client from connection string: %w", err)
+		return fmt.Errorf("failed to create Event Hub producer client: %w", err)
 	}
 	e.producer = producer
 	return nil
 }
 
+func (e *azureEventHubExporter) startKafka(host component.Host) error {
+	if e.config.Auth != nil {
+		ext, ok := host.GetExtensions()[*e.config.Auth]
+		if !ok {
+			return fmt.Errorf("failed to resolve auth extension %q", *e.config.Auth)
+		}
+		credential, ok := ext.(azcore.TokenCredential)
+		if !ok {
+			return fmt.Errorf("extension %q does not implement azcore.TokenCredential", *e.config.Auth)
+		}
+		s, err := newKafkaSenderFromCredential(credential, e.config.EventHub)
+		if err != nil {
+			return err
+		}
+		e.kafkaSender = s
+	} else {
+		s, err := newKafkaSenderWithSASKey(e.config.EventHub)
+		if err != nil {
+			return err
+		}
+		e.kafkaSender = s
+	}
+	e.doSend = e.kafkaSend
+	return nil
+}
+
 func (e *azureEventHubExporter) shutdown(ctx context.Context) error {
+	if e.kafkaSender != nil {
+		return e.kafkaSender.close()
+	}
 	if e.producer != nil {
 		return e.producer.Close(ctx)
 	}
 	return nil
+}
+
+// kafkaSend forwards a single (partitionKey, body) pair to the Kafka sender.
+func (e *azureEventHubExporter) kafkaSend(ctx context.Context, partitionKey string, body []byte) error {
+	return e.kafkaSender.send(ctx, partitionKey, body)
 }
 
 // ConsumeLogs splits the batch according to the configured partition strategy and
